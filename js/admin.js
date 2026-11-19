@@ -5,7 +5,15 @@ const adminPanel = document.getElementById('adminPanel');
 const form = document.getElementById('productForm');
 const list = document.getElementById('adminList');
 const msg = document.getElementById('msg');
+const imageFileInput = document.getElementById('imageFile');
+const imagePreviewWrap = document.getElementById('imagePreviewWrap');
+const imagePreview = document.getElementById('imagePreview');
+const clearImageBtn = document.getElementById('clearImageBtn');
+
 let editingId = null;
+let currentImageUrl = '';
+let selectedFile = null;
+let previewObjectUrl = '';
 
 function getToken() {
   return sessionStorage.getItem(TOKEN_KEY) || '';
@@ -33,6 +41,55 @@ async function readJsonSafe(res) {
     return {error: `Server returned a non-JSON response (HTTP ${res.status}).`};
   }
 }
+
+function setImagePreview(src) {
+  if (previewObjectUrl) {
+    URL.revokeObjectURL(previewObjectUrl);
+    previewObjectUrl = '';
+  }
+  if (src) {
+    imagePreview.src = src;
+    imagePreviewWrap.style.display = 'flex';
+  } else {
+    imagePreview.removeAttribute('src');
+    imagePreviewWrap.style.display = 'none';
+  }
+}
+
+function resetFormState() {
+  form.reset();
+  editingId = null;
+  currentImageUrl = '';
+  selectedFile = null;
+  setImagePreview('');
+  document.getElementById('formTitle').textContent = 'Add product';
+  document.getElementById('submitBtn').textContent = 'Add Product';
+}
+
+imageFileInput.addEventListener('change', () => {
+  const file = imageFileInput.files?.[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    msg.textContent = 'Image file is too large (max 5 MB).';
+    imageFileInput.value = '';
+    return;
+  }
+  selectedFile = file;
+  if (previewObjectUrl) {
+    URL.revokeObjectURL(previewObjectUrl);
+  }
+  previewObjectUrl = URL.createObjectURL(file);
+  imagePreview.src = previewObjectUrl;
+  imagePreviewWrap.style.display = 'flex';
+  msg.textContent = '';
+});
+
+clearImageBtn.addEventListener('click', () => {
+  selectedFile = null;
+  currentImageUrl = '';
+  imageFileInput.value = '';
+  setImagePreview('');
+});
 
 function show(authenticated) {
   loginBox.style.display = authenticated ? 'none' : 'block';
@@ -101,6 +158,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
 
 document.getElementById('logoutBtn').onclick = () => {
   setToken('');
+  resetFormState();
   msg.textContent = 'Logged out';
   show(false);
 };
@@ -118,7 +176,7 @@ async function loadProducts() {
         .map(
           (p) => `
       <div class="admin-row">
-        <img src="${escapeHtml(p.image || '')}" alt="">
+        <img src="${escapeHtml(p.image || 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&q=80')}" alt="">
         <div><strong>${escapeHtml(p.name)}</strong><span>${escapeHtml(p.price)} Br - ${escapeHtml(p.category || '')}</span><small>${escapeHtml(p.description || '')}</small></div>
         <div class="actions"><button data-edit="${escapeHtml(p.id)}">Edit</button><button data-del="${escapeHtml(p.id)}" class="danger">Delete</button></div>
       </div>`,
@@ -162,29 +220,61 @@ async function loadProducts() {
 function edit(p) {
   if (!p) return;
   editingId = p.id;
+  selectedFile = null;
+  imageFileInput.value = '';
+  currentImageUrl = p.image || '';
   document.getElementById('name').value = p.name || '';
   document.getElementById('price').value = p.price ?? '';
   document.getElementById('category').value = p.category || '';
-  document.getElementById('image').value = p.image || '';
   document.getElementById('description').value = p.description || '';
+  setImagePreview(currentImageUrl);
+  document.getElementById('formTitle').textContent = 'Edit product';
   document.getElementById('submitBtn').textContent = 'Update Product';
   window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
+async function uploadSelectedImage(file) {
+  const res = await fetch('/api/upload', {
+    method: 'POST',
+    headers: {
+      'Content-Type': file.type || 'image/jpeg',
+      Authorization: `Bearer ${getToken()}`,
+    },
+    body: file,
+  });
+  if (res.status === 401) {
+    setToken('');
+    show(false);
+    throw new Error('Session expired. Please sign in again.');
+  }
+  const data = await readJsonSafe(res);
+  if (!res.ok || !data.url) {
+    throw new Error(data.error || `Image upload failed (HTTP ${res.status})`);
+  }
+  return data.url;
+}
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const data = {
-    name: document.getElementById('name').value.trim(),
-    price: Number(document.getElementById('price').value),
-    category: document.getElementById('category').value.trim() || 'Menu',
-    image: document.getElementById('image').value.trim(),
-    description: document.getElementById('description').value.trim(),
-  };
-  if (!data.name || Number.isNaN(data.price)) {
+  const submitBtn = document.getElementById('submitBtn');
+  const name = document.getElementById('name').value.trim();
+  const price = Number(document.getElementById('price').value);
+  const category = document.getElementById('category').value.trim() || 'Menu';
+  const description = document.getElementById('description').value.trim();
+
+  if (!name || Number.isNaN(price)) {
     msg.textContent = 'Name and price required';
     return;
   }
+
+  submitBtn.disabled = true;
   try {
+    let image = currentImageUrl;
+    if (selectedFile) {
+      msg.textContent = 'Uploading image...';
+      image = await uploadSelectedImage(selectedFile);
+    }
+
     const url = editingId
       ? `/api/products/${encodeURIComponent(editingId)}`
       : '/api/products';
@@ -195,7 +285,7 @@ form.addEventListener('submit', async (e) => {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${getToken()}`,
       },
-      body: JSON.stringify(data),
+      body: JSON.stringify({name, price, category, image, description}),
     });
     if (res.status === 401) {
       setToken('');
@@ -208,19 +298,18 @@ form.addEventListener('submit', async (e) => {
       throw new Error(body.error || `Request failed (HTTP ${res.status})`);
     }
     msg.textContent = editingId ? 'Updated' : 'Added';
-    form.reset();
-    editingId = null;
-    document.getElementById('submitBtn').textContent = 'Add Product';
+    resetFormState();
     loadProducts();
   } catch (err) {
     msg.textContent = err.message;
+  } finally {
+    submitBtn.disabled = false;
   }
 });
 
 document.getElementById('cancelBtn').onclick = () => {
-  form.reset();
-  editingId = null;
-  document.getElementById('submitBtn').textContent = 'Add Product';
+  resetFormState();
+  msg.textContent = '';
 };
 
 checkSession();

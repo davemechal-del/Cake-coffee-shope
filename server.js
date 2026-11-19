@@ -7,8 +7,10 @@ import {
   createProduct,
   deleteProduct,
   getDatabaseType,
+  getImage,
   initDb,
   listProducts,
+  saveImage,
   updateProduct,
   verifyAdminCredentials,
 } from './db.js';
@@ -24,6 +26,13 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const SESSION_SECRET =
   process.env.SESSION_SECRET ||
   crypto.createHash('sha256').update(`${ADMIN_EMAIL}:${ADMIN_PASSWORD}:buna-cake`).digest('hex');
+
+const ALLOWED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
 
 function signToken(email) {
   const payload = Buffer.from(
@@ -108,6 +117,48 @@ app.get('/api/me', requireAuth, (req, res) => {
   res.json({email: req.user.email});
 });
 
+// Image upload & serving (persisted in database)
+app.post(
+  '/api/upload',
+  requireAuth,
+  express.raw({type: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], limit: '5mb'}),
+  async (req, res, next) => {
+    try {
+      const contentType = String(req.headers['content-type'] || '')
+        .split(';')[0]
+        .trim()
+        .toLowerCase();
+      if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
+        return res
+          .status(400)
+          .json({error: 'Unsupported image format. Use PNG, JPG, WebP, or GIF.'});
+      }
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({error: 'Empty image file.'});
+      }
+
+      const saved = await saveImage(contentType, req.body);
+      res.status(201).json(saved);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+app.get('/api/images/:id', async (req, res, next) => {
+  try {
+    const img = await getImage(req.params.id);
+    if (!img) {
+      return res.status(404).end();
+    }
+    res.setHeader('Content-Type', img.mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(img.data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Products API
 app.get('/api/products', async (_req, res, next) => {
   try {
@@ -189,6 +240,9 @@ app.get('/admin', (_req, res) => {
 });
 
 app.use('/api', (err, _req, res, _next) => {
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({error: 'Image file is too large (max 5 MB).'});
+  }
   if (err instanceof SyntaxError && 'body' in err) {
     return res.status(400).json({error: 'Invalid JSON request body.'});
   }

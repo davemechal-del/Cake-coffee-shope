@@ -14,10 +14,16 @@ assert(!admin.includes('firebase'), 'unexpected firebase reference in admin.js')
 const server = await readFile('server.js', 'utf8');
 assert(server.includes('/api/products'), 'server products endpoint missing');
 assert(server.includes('/api/login'), 'server login endpoint missing');
+assert(server.includes('/api/upload'), 'server upload endpoint missing');
+assert(server.includes('/api/images/:id'), 'server image serving endpoint missing');
 
 const db = await readFile('db.js', 'utf8');
 assert(db.includes('CREATE TABLE IF NOT EXISTS products'), 'products table DDL missing');
 assert(db.includes('CREATE TABLE IF NOT EXISTS admins'), 'admins table DDL missing');
+assert(db.includes('CREATE TABLE IF NOT EXISTS images'), 'images table DDL missing');
+
+const adminHtml = await readFile('admin.html', 'utf8');
+assert(adminHtml.includes('id="imageFile"') && adminHtml.includes('type="file"'), 'image file input missing');
 
 const html = await readFile('index.html', 'utf8');
 assert(html.includes('menuGrid') && html.includes('filterBar'), 'menu hooks missing');

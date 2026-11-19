@@ -108,6 +108,15 @@ export async function initDb() {
       );
     `);
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS images (
+        id TEXT PRIMARY KEY,
+        mime_type TEXT NOT NULL,
+        data BYTEA NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
     const countRes = await pool.query('SELECT COUNT(*)::int AS count FROM products');
     if (countRes.rows[0].count === 0) {
       for (const item of loadSampleProducts()) {
@@ -170,6 +179,13 @@ export async function initDb() {
       password_hash TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS images (
+      id TEXT PRIMARY KEY,
+      mime_type TEXT NOT NULL,
+      data BLOB NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
 
   const countRow = sqliteDb.prepare('SELECT COUNT(*) AS count FROM products').get();
@@ -224,6 +240,37 @@ export async function verifyAdminCredentials(email, password) {
   const row = sqliteDb.prepare('SELECT password_hash FROM admins WHERE email = ?').get(normalized);
   if (!row) return false;
   return verifyPasswordHash(password, row.password_hash);
+}
+
+export async function saveImage(mimeType, buffer) {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  if (mode === 'postgres') {
+    await pool.query(
+      'INSERT INTO images (id, mime_type, data, created_at) VALUES ($1, $2, $3, $4)',
+      [id, mimeType, buffer, now],
+    );
+  } else {
+    sqliteDb
+      .prepare('INSERT INTO images (id, mime_type, data, created_at) VALUES (?, ?, ?, ?)')
+      .run(id, mimeType, buffer, now);
+  }
+
+  return {id, url: `/api/images/${id}`};
+}
+
+export async function getImage(id) {
+  if (!id) return null;
+  if (mode === 'postgres') {
+    const res = await pool.query('SELECT mime_type, data FROM images WHERE id = $1', [id]);
+    if (res.rowCount === 0) return null;
+    return {mimeType: res.rows[0].mime_type, data: Buffer.from(res.rows[0].data)};
+  }
+
+  const row = sqliteDb.prepare('SELECT mime_type, data FROM images WHERE id = ?').get(id);
+  if (!row) return null;
+  return {mimeType: row.mime_type, data: Buffer.from(row.data)};
 }
 
 export async function listProducts() {
