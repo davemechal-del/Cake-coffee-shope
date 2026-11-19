@@ -7,6 +7,7 @@ const required = [
   'admin.html',
   'style.css',
   'server.js',
+  'db.js',
   'js/app.js',
   'js/admin.js',
   'samples/products.json',

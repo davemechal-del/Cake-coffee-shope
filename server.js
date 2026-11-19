@@ -3,6 +3,15 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import {fileURLToPath} from 'url';
+import {
+  createProduct,
+  deleteProduct,
+  getDatabaseType,
+  initDb,
+  listProducts,
+  updateProduct,
+  verifyAdminCredentials,
+} from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,48 +24,6 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const SESSION_SECRET =
   process.env.SESSION_SECRET ||
   crypto.createHash('sha256').update(`${ADMIN_EMAIL}:${ADMIN_PASSWORD}:buna-cake`).digest('hex');
-
-const DATA_DIR = process.env.DATA_DIR
-  ? path.resolve(process.env.DATA_DIR)
-  : path.join(__dirname, 'data');
-const PRODUCTS_FILE = path.join(DATA_DIR, 'products.json');
-const SAMPLES_FILE = path.join(__dirname, 'samples', 'products.json');
-
-function ensureProductsFile() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, {recursive: true});
-  }
-  if (!fs.existsSync(PRODUCTS_FILE)) {
-    let initial = [];
-    if (fs.existsSync(SAMPLES_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(SAMPLES_FILE, 'utf8'));
-      const now = Date.now();
-      initial = raw.map((item, idx) => ({
-        id: crypto.randomUUID(),
-        name: String(item.name || ''),
-        price: Number(item.price || 0),
-        category: String(item.category || 'Menu'),
-        image: String(item.image || ''),
-        description: String(item.description || ''),
-        createdAt: new Date(now - idx * 1000).toISOString(),
-        updatedAt: new Date(now - idx * 1000).toISOString(),
-      }));
-    }
-    fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(initial, null, 2), 'utf8');
-  }
-}
-
-function readProducts() {
-  ensureProductsFile();
-  const raw = fs.readFileSync(PRODUCTS_FILE, 'utf8');
-  const items = JSON.parse(raw);
-  return Array.isArray(items) ? items : [];
-}
-
-function writeProducts(products) {
-  ensureProductsFile();
-  fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(products, null, 2), 'utf8');
-}
 
 function signToken(email) {
   const payload = Buffer.from(
@@ -108,7 +75,7 @@ app.use(express.json());
 
 // Block direct HTTP access to server/project internals and storage
 app.use(
-  ['/server.js', '/package.json', '/package-lock.json', '/.env', '/.env.example', '/data'],
+  ['/server.js', '/db.js', '/package.json', '/package-lock.json', '/.env', '/.env.example', '/data'],
   (_req, res) => {
     res.status(404).end();
   },
@@ -116,32 +83,25 @@ app.use(
 
 // Public health check for Render
 app.get('/health', (_req, res) => {
-  res.json({ok: true});
+  res.json({ok: true, db: getDatabaseType()});
 });
 
 // Auth endpoints
-app.post('/api/login', (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
-  const password = String(req.body?.password || '');
+app.post('/api/login', async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
 
-  const emailBuf = Buffer.from(email);
-  const expectedEmailBuf = Buffer.from(ADMIN_EMAIL);
-  const passBuf = Buffer.from(password);
-  const expectedPassBuf = Buffer.from(ADMIN_PASSWORD);
+    const valid = await verifyAdminCredentials(email, password);
+    if (!valid) {
+      return res.status(401).json({error: 'Invalid email or password.'});
+    }
 
-  const emailOk =
-    emailBuf.length === expectedEmailBuf.length &&
-    crypto.timingSafeEqual(emailBuf, expectedEmailBuf);
-  const passOk =
-    passBuf.length === expectedPassBuf.length &&
-    crypto.timingSafeEqual(passBuf, expectedPassBuf);
-
-  if (!emailOk || !passOk) {
-    return res.status(401).json({error: 'Invalid email or password.'});
+    const token = signToken(email);
+    res.json({token, email});
+  } catch (err) {
+    next(err);
   }
-
-  const token = signToken(email);
-  res.json({token, email});
 });
 
 app.get('/api/me', requireAuth, (req, res) => {
@@ -149,95 +109,80 @@ app.get('/api/me', requireAuth, (req, res) => {
 });
 
 // Products API
-app.get('/api/products', (_req, res) => {
+app.get('/api/products', async (_req, res, next) => {
   try {
-    const products = readProducts().sort(
-      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
-    );
+    const products = await listProducts();
     res.json({products});
   } catch (err) {
-    console.error('Failed to read products:', err);
-    res.status(500).json({error: 'Failed to load products.'});
+    next(err);
   }
 });
 
-app.post('/api/products', requireAuth, (req, res) => {
-  const name = String(req.body?.name || '').trim();
-  const price = Number(req.body?.price);
-  const category = String(req.body?.category || '').trim() || 'Menu';
-  const image = String(req.body?.image || '').trim();
-  const description = String(req.body?.description || '').trim();
+app.post('/api/products', requireAuth, async (req, res, next) => {
+  try {
+    const name = String(req.body?.name || '').trim();
+    const price = Number(req.body?.price);
+    const category = String(req.body?.category || '').trim() || 'Menu';
+    const image = String(req.body?.image || '').trim();
+    const description = String(req.body?.description || '').trim();
 
-  if (!name || Number.isNaN(price) || price < 0) {
-    return res.status(400).json({error: 'Valid product name and price are required.'});
+    if (!name || Number.isNaN(price) || price < 0) {
+      return res.status(400).json({error: 'Valid product name and price are required.'});
+    }
+
+    const product = await createProduct({name, price, category, image, description});
+    res.status(201).json({product});
+  } catch (err) {
+    next(err);
   }
-
-  const now = new Date().toISOString();
-  const product = {
-    id: crypto.randomUUID(),
-    name,
-    price,
-    category,
-    image,
-    description,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const products = readProducts();
-  products.unshift(product);
-  writeProducts(products);
-  res.status(201).json({product});
 });
 
-app.put('/api/products/:id', requireAuth, (req, res) => {
-  const {id} = req.params;
-  const products = readProducts();
-  const index = products.findIndex((p) => p.id === id);
-  if (index === -1) {
-    return res.status(404).json({error: 'Product not found.'});
+app.put('/api/products/:id', requireAuth, async (req, res, next) => {
+  try {
+    const {id} = req.params;
+    const name = String(req.body?.name || '').trim();
+    const price = Number(req.body?.price);
+    const category = String(req.body?.category || '').trim() || 'Menu';
+    const image = String(req.body?.image || '').trim();
+    const description = String(req.body?.description || '').trim();
+
+    if (!name || Number.isNaN(price) || price < 0) {
+      return res.status(400).json({error: 'Valid product name and price are required.'});
+    }
+
+    const updated = await updateProduct(id, {name, price, category, image, description});
+    if (!updated) {
+      return res.status(404).json({error: 'Product not found.'});
+    }
+    res.json({product: updated});
+  } catch (err) {
+    next(err);
   }
-
-  const name = String(req.body?.name || '').trim();
-  const price = Number(req.body?.price);
-  const category = String(req.body?.category || '').trim() || 'Menu';
-  const image = String(req.body?.image || '').trim();
-  const description = String(req.body?.description || '').trim();
-
-  if (!name || Number.isNaN(price) || price < 0) {
-    return res.status(400).json({error: 'Valid product name and price are required.'});
-  }
-
-  const updated = {
-    ...products[index],
-    name,
-    price,
-    category,
-    image,
-    description,
-    updatedAt: new Date().toISOString(),
-  };
-
-  products[index] = updated;
-  writeProducts(products);
-  res.json({product: updated});
 });
 
-app.delete('/api/products/:id', requireAuth, (req, res) => {
-  const {id} = req.params;
-  const products = readProducts();
-  const next = products.filter((p) => p.id !== id);
-  if (next.length === products.length) {
-    return res.status(404).json({error: 'Product not found.'});
+app.delete('/api/products/:id', requireAuth, async (req, res, next) => {
+  try {
+    const deleted = await deleteProduct(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({error: 'Product not found.'});
+    }
+    res.json({ok: true});
+  } catch (err) {
+    next(err);
   }
-  writeProducts(next);
-  res.json({ok: true});
 });
 
 const DIST_DIR = path.join(__dirname, 'dist');
 const STATIC_DIR = fs.existsSync(path.join(DIST_DIR, 'index.html')) ? DIST_DIR : __dirname;
 
-app.use(express.static(STATIC_DIR, {dotfiles: 'ignore'}));
+app.use(
+  express.static(STATIC_DIR, {
+    dotfiles: 'ignore',
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+    },
+  }),
+);
 
 app.get('/admin', (_req, res) => {
   res.sendFile(path.join(STATIC_DIR, 'admin.html'));
@@ -255,8 +200,8 @@ app.use((_req, res) => {
   res.sendFile(path.join(STATIC_DIR, 'index.html'));
 });
 
-ensureProductsFile();
+await initDb();
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Buna & Cake server running at http://0.0.0.0:${PORT}`);
+  console.log(`Buna & Cake server running at http://0.0.0.0:${PORT} (db: ${getDatabaseType()})`);
 });
