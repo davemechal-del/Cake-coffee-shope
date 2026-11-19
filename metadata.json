@@ -1,0 +1,6 @@
+{
+  "name": "Buna & Cake - Coffee and Cake Shop",
+  "description": "Warm cream/brown/orange editorial coffee and cake shop site with Firebase admin for products",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buna &amp; Cake - Coffee and Cake Shop</title>
+<meta name="description" content="Warm cream/brown/orange editorial coffee and cake shop site with Firebase admin for products">
+<meta property="og:title" content="Buna &amp; Cake - Coffee and Cake Shop">
+<meta property="og:description" content="Warm cream/brown/orange editorial coffee and cake shop site with Firebase admin for products">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="index.html"><span class="logo">B</span> Buna &amp; Cake</a>
+  <nav><a href="#menu">Menu</a><a href="#about">About</a><a href="admin.html">Admin</a></nav>
+</header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <p class="eyebrow">Coffee • Cake • Morning</p>
+    <h1>Warm coffee,<br>honest cake.</h1>
+    <p class="lede">Small-batch roasts, fresh bakes, and a corner to linger. Menu updates live from the shop.</p>
+    <div class="hero-actions"><a class="btn" href="#menu">See menu</a><a class="btn ghost" href="#about">Our story</a></div>
+    <div class="stats"><div><strong>6+</strong><span> signature items</span></div><div><strong>Daily</strong><span> fresh bake</span></div><div><strong>Live</strong><span> menu updates</span></div></div>
+  </div>
+  <div class="hero-art"><img src="https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=800&q=80" alt="Coffee"></div>
+</section>
+
+<section id="menu" class="menu-section">
+  <div class="section-head">
+    <div><p class="eyebrow">Our menu</p><h2>Today at the counter</h2></div>
+    <input id="searchInput" placeholder="Search coffee or cake..." aria-label="Search menu">
+  </div>
+  <div id="filterBar" class="filters"></div>
+  <p id="status" class="status"></p><p id="count" class="count"></p>
+  <div id="menuGrid" class="grid"></div>
+</section>
+
+<section id="about" class="about">
+  <h2>About us</h2>
+  <p>We roast in small batches and bake through the morning. Espresso, lattes, cappuccinos, cheesecake, fudge cake and more. Prices in Ethiopian Birr.</p>
+  <p><small>Admin? <a href="admin.html">Sign in to update the menu</a></small></p>
+</section>
+
+<footer><span>Buna &amp; Cake</span><span>Coffee and cake made with care</span></footer>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
