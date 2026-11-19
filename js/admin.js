@@ -83,6 +83,11 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
       }
       throw new Error(data.error || `Login failed (HTTP ${res.status})`);
     }
+    if (data.error) {
+      throw new Error(
+        `${data.error} On Render, make sure this is deployed as a Web Service running "npm start" (not a Static Site).`,
+      );
+    }
     if (!data.token) {
       throw new Error('Server did not return a session token. Make sure server.js is running.');
     }
