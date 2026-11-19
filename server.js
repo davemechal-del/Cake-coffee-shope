@@ -243,6 +243,14 @@ app.get('/admin', (_req, res) => {
   res.sendFile(path.join(STATIC_DIR, 'admin.html'));
 });
 
+app.use('/api', (err, _req, res, _next) => {
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({error: 'Invalid JSON request body.'});
+  }
+  console.error('API error:', err);
+  res.status(500).json({error: 'Internal server error.'});
+});
+
 app.use((_req, res) => {
   res.sendFile(path.join(STATIC_DIR, 'index.html'));
 });

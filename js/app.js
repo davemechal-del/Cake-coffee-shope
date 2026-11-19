@@ -56,7 +56,8 @@ async function load(){
   try{
     const res = await fetch('/api/products');
     if(!res.ok) throw new Error('Failed to load menu');
-    const data = await res.json();
+    const text = await res.text();
+    const data = text ? JSON.parse(text) : {};
     if(Array.isArray(data.products) && data.products.length){
       products = data.products;
       statusEl.textContent = "Live menu";

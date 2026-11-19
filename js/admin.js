@@ -24,6 +24,16 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+async function readJsonSafe(res) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {error: `Server returned a non-JSON response (HTTP ${res.status}).`};
+  }
+}
+
 function show(authenticated) {
   loginBox.style.display = authenticated ? 'none' : 'block';
   adminPanel.style.display = authenticated ? 'block' : 'none';
@@ -64,9 +74,17 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({email, password}),
     });
-    const data = await res.json();
+    const data = await readJsonSafe(res);
     if (!res.ok) {
-      throw new Error(data.error || 'Login failed');
+      if (res.status === 404 || res.status === 405) {
+        throw new Error(
+          `Admin API unavailable (HTTP ${res.status}). On Render, deploy as a Web Service (Start Command: npm start) instead of a Static Site.`,
+        );
+      }
+      throw new Error(data.error || `Login failed (HTTP ${res.status})`);
+    }
+    if (!data.token) {
+      throw new Error('Server did not return a session token. Make sure server.js is running.');
     }
     setToken(data.token);
     msg.textContent = 'Logged in';
@@ -85,7 +103,10 @@ document.getElementById('logoutBtn').onclick = () => {
 async function loadProducts() {
   try {
     const res = await fetch('/api/products');
-    const data = await res.json();
+    const data = await readJsonSafe(res);
+    if (!res.ok) {
+      throw new Error(data.error || `Failed to load products (HTTP ${res.status}).`);
+    }
     const rows = Array.isArray(data.products) ? data.products : [];
     list.innerHTML =
       rows
@@ -177,9 +198,9 @@ form.addEventListener('submit', async (e) => {
       msg.textContent = 'Session expired. Please sign in again.';
       return;
     }
-    const body = await res.json();
+    const body = await readJsonSafe(res);
     if (!res.ok) {
-      throw new Error(body.error || 'Request failed');
+      throw new Error(body.error || `Request failed (HTTP ${res.status})`);
     }
     msg.textContent = editingId ? 'Updated' : 'Added';
     form.reset();
