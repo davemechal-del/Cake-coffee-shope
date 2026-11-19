@@ -234,14 +234,17 @@ app.delete('/api/products/:id', requireAuth, (req, res) => {
   res.json({ok: true});
 });
 
-app.use(express.static(__dirname, {dotfiles: 'ignore'}));
+const DIST_DIR = path.join(__dirname, 'dist');
+const STATIC_DIR = fs.existsSync(path.join(DIST_DIR, 'index.html')) ? DIST_DIR : __dirname;
+
+app.use(express.static(STATIC_DIR, {dotfiles: 'ignore'}));
 
 app.get('/admin', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'admin.html'));
+  res.sendFile(path.join(STATIC_DIR, 'admin.html'));
 });
 
 app.use((_req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+  res.sendFile(path.join(STATIC_DIR, 'index.html'));
 });
 
 ensureProductsFile();
